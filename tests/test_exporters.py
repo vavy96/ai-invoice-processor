@@ -226,3 +226,13 @@ def test_csv_and_xlsx_export_reviewed_line_items() -> None:
         exported_lines.loc[0, "customer_profile"]
         == "services"
     )
+
+
+def test_empty_line_item_csv_keeps_its_headers() -> None:
+    csv_text = to_line_items_csv_bytes([]).decode("utf-8-sig")
+    lines = csv_text.splitlines()
+
+    assert len(lines) == 1
+    assert "source_filename" in lines[0]
+    assert "description" in lines[0]
+    assert "service_period_end" in lines[0]

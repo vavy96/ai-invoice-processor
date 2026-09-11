@@ -5,7 +5,7 @@ digital and scanned PDF invoices, asks an OpenAI model to convert the extracted
 text into structured fields, checks the values, lets a person correct them, and
 exports the reviewed results.
 
-## Version 2 features
+## Version 3 features
 
 - Runs locally with a Streamlit interface.
 - Accepts one or more PDF invoices.
@@ -18,15 +18,24 @@ exports the reviewed results.
 - Extracts supplier, invoice, date, currency, amount and purchase-order fields.
 - Summarises billed products and services in a separate column.
 - Includes the service period when it is stated on the invoice.
-- Checks required fields, dates, currencies and arithmetic.
-- Lets a person edit extracted values before export.
+- Extracts products and services as structured, editable line items.
+- Captures quantities, units, prices, taxes, totals and stated service periods.
+- Supports Standard, Services, Purchase-order and VAT validation profiles.
+- Checks required fields, dates, currencies, invoice arithmetic and line-item arithmetic.
+- Detects possible duplicates within the current batch using supplier identity and invoice number.
+- Lets a person edit invoice fields and line items before export.
 - Supports batch processing with an individual result for each file.
-- Downloads reviewed results as CSV or Excel.
+- Shows processing time, token usage, estimated API cost and review agreement.
+- Downloads invoice, line-item and accuracy CSV files.
+- Creates an Excel report with `Invoices`, `Line Items` and `Field Accuracy` sheets.
 - Includes automated tests that do not call OpenAI or perform real OCR.
 
 ## Screenshot
 
-![AI Invoice Processor review screen](docs/images/ai-invoice-processor-review.png)
+The example below uses synthetic data and shows an invoice beside its reviewed
+structured output.
+
+![Synthetic invoice and reviewed output](docs/images/ai-invoice-processor-review.png)
 
 ## Project structure
 
@@ -36,7 +45,10 @@ invoice-processor/
 ├── src/invoice_processor/
 │   ├── ai_extractor.py            # OpenAI structured extraction
 │   ├── config.py                  # Environment and application settings
-│   ├── exporters.py               # CSV and Excel creation
+│   ├── customer_profiles.py       # Customer-specific required fields
+│   ├── duplicate_detector.py      # Batch duplicate detection
+│   ├── exporters.py               # Invoice, line-item and accuracy exports
+│   ├── metrics.py                 # Accuracy, token and cost measurements
 │   ├── models.py                  # Structured invoice data models
 │   ├── ocr_extractor.py           # Local Tesseract OCR
 │   ├── pdf_extractor.py           # Digital extraction with OCR fallback
@@ -63,6 +75,7 @@ tax_amount
 total_amount
 purchase_order_number
 products_services_summary
+line_items
 confidence_notes
 ```
 
@@ -72,6 +85,25 @@ application does not ask the AI model to invent missing information.
 `products_services_summary` contains a concise summary of billed products and
 services. Multiple entries are separated with semicolons. A service period is
 included beside the service name only when the invoice states one.
+
+Each `line_items` entry may contain:
+
+```text
+description
+item_type
+quantity
+unit
+unit_price
+net_amount
+tax_rate_percent
+tax_amount
+total_amount
+service_period_start
+service_period_end
+```
+
+Missing line-item values remain `null`. Service-period dates are extracted only
+when the invoice explicitly states them.
 
 ## Requirements
 
@@ -165,16 +197,18 @@ Open `http://localhost:8501` if the browser does not open automatically.
 
 ## Processing workflow
 
-1. Upload one or more PDF invoices.
-2. Select **Extract and preview text**.
-3. The application first tries normal embedded-text extraction.
-4. If almost no embedded text is found, it automatically runs local Tesseract OCR.
-5. The application displays the reading method and extracted text.
-6. Confirm that the important information is readable.
+1. Select the customer validation profile in the sidebar.
+2. Upload one or more PDF invoices.
+3. Select **Extract and preview text**.
+4. The application first tries normal embedded-text extraction.
+5. If almost no embedded text is found, it automatically runs local Tesseract OCR.
+6. Confirm that the displayed text is readable.
 7. Select **Continue with AI extraction**.
-8. Review the structured fields and validation messages.
-9. Correct any inaccurate values manually.
-10. Download the reviewed results as CSV or Excel.
+8. Review and correct the invoice fields and structured line items.
+9. Resolve relevant validation messages.
+10. Check any possible duplicate warnings.
+11. Review timing, token, cost and field-agreement measurements.
+12. Download the invoice CSV, line-item CSV, accuracy CSV or Excel report.
 
 The first extraction and preview stage is local and does not use OpenAI API
 credit. Extracted text is sent to OpenAI only after the user selects
@@ -189,7 +223,7 @@ credit. Extracted text is sent to OpenAI only after the user selects
 The test suite uses simulated PDF pages, OCR responses and AI responses. It does
 not process real invoices, run real OCR, contact OpenAI or consume API credit.
 
-The current test suite contains 24 tests covering:
+The current test suite contains 63 tests covering:
 
 - AI-response handling
 - Digital PDF extraction
@@ -198,7 +232,12 @@ The current test suite contains 24 tests covering:
 - Missing OCR language data
 - Empty or unreadable documents
 - Invoice validation
-- CSV and Excel exports
+- Customer validation profiles
+- Duplicate detection
+- Processing measurements and cost estimation
+- Structured products, services and service periods
+- Line-item arithmetic and date validation
+- Invoice, line-item, accuracy and Excel exports
 - Processing workflow
 
 ## Privacy and security
@@ -228,13 +267,46 @@ The current test suite contains 24 tests covering:
 - Low-resolution, blurred, rotated, handwritten or damaged documents may produce
   inaccurate OCR results.
 - Complicated tables and unusual invoice layouts may be interpreted incorrectly.
-- The product and service output is a summary, not a complete line-item accounting
-  ledger.
+- Line-item extraction is intended for review and is not a substitute for an
+  accounting-system ledger.
 - Validation performs simple deterministic checks and cannot detect every
   accounting or compliance issue.
+- Duplicate detection only compares invoices in the current batch. It does not
+  search historical invoices because the application has no database.
+- Field agreement measures whether a human reviewer changed an extracted value;
+  it is meaningful only when every field was checked against the source invoice.
+- API cost is an estimate based on the configured local price table and may need
+  updating when model pricing changes.
+- One customer validation profile applies to the complete uploaded batch.
 - The application has no database, authentication, user management, Docker
   configuration or cloud deployment.
 - API availability and cost depend on the configured OpenAI account and model.
+
+## Future roadmap
+
+The following capabilities are intentionally deferred until a real customer need
+justifies their design and operating cost:
+
+### Step 6: Supplier-specific rules
+
+Add targeted extraction or validation rules for recurring supplier formats only
+after measured results show that the general workflow is insufficient.
+
+### Step 7: Persistent database storage
+
+Store invoices, review history, duplicate identifiers and measurements when the
+application needs history across sessions. Define retention and deletion policies
+before storing real customer data.
+
+### Step 8: ERP and accounting integrations
+
+Send approved invoices through documented APIs for a selected system such as an
+ERP or accounting platform. Keep human approval and audit records in the workflow.
+
+### Step 9: Multi-user security and operations
+
+Add authentication, role-based access, audit logging, safe operational logs and
+deployment controls before serious multi-user or client deployment.
 
 ## Common problems
 
