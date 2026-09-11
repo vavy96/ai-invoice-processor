@@ -1,6 +1,11 @@
 """Tests for the processing workflow."""
 
-from invoice_processor.models import ExtractedInvoice, InvoiceData
+from invoice_processor.models import (
+    AIExtractionResult,
+    ExtractedInvoice,
+    InvoiceData,
+    ProcessingMetrics,
+)
 from invoice_processor.workflow import (
     extract_invoice_text,
     process_extracted_invoice,
@@ -15,13 +20,23 @@ def test_workflow_passes_pdf_text_to_ai(monkeypatch) -> None:
     )
     seen: list[str] = []
 
-    def fake_ai_extractor(text: str) -> InvoiceData:
+    def fake_ai_extractor(text: str) -> AIExtractionResult:
         seen.append(text)
-        return InvoiceData(
-            supplier_name="Vendor",
-            invoice_number="1",
-            currency="EUR",
-            total_amount=25,
+        return AIExtractionResult(
+            invoice=InvoiceData(
+                supplier_name="Vendor",
+                invoice_number="1",
+                currency="EUR",
+                total_amount=25,
+            ),
+            metrics=ProcessingMetrics(
+                model="gpt-4.1-mini",
+                ai_processing_seconds=0.25,
+                input_tokens=500,
+                output_tokens=100,
+                total_tokens=600,
+                estimated_cost_usd=0.00036,
+            ),
         )
 
     result = process_invoice(b"pdf", "invoice.pdf", fake_ai_extractor)
@@ -29,6 +44,10 @@ def test_workflow_passes_pdf_text_to_ai(monkeypatch) -> None:
     assert seen == ["Invoice text from the PDF"]
     assert result.source_filename == "invoice.pdf"
     assert result.invoice.total_amount == 25
+    assert result.processing_metrics.model == "gpt-4.1-mini"
+    assert result.processing_metrics.input_tokens == 500
+    assert result.processing_metrics.total_tokens == 600
+    assert result.processing_metrics.extraction_method == "digital"
 
 
 def test_extraction_stage_does_not_need_an_ai_extractor(monkeypatch) -> None:

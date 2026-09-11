@@ -4,7 +4,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from invoice_processor.ai_extractor import AIExtractionError, extract_invoice_with_ai
+from invoice_processor.ai_extractor import (
+    AIExtractionError,
+    extract_invoice_with_ai,
+)
 from invoice_processor.models import InvoiceData
 
 
@@ -15,7 +18,18 @@ class FakeResponses:
 
     def parse(self, **kwargs):
         self.arguments = kwargs
-        return SimpleNamespace(output_parsed=self.parsed)
+        usage = SimpleNamespace(
+            input_tokens=1_000,
+            output_tokens=200,
+            total_tokens=1_200,
+            input_tokens_details=SimpleNamespace(
+                cached_tokens=100,
+            ),
+        )
+        return SimpleNamespace(
+            output_parsed=self.parsed,
+            usage=usage,
+        )
 
 
 class FakeClient:
@@ -30,25 +44,50 @@ def test_requests_structured_output_without_response_storage() -> None:
         currency="EUR",
         total_amount=10,
         products_services_summary=(
-            "Cloud hosting (service period: 2026-01-01 to 2026-01-31); USB cable"
+            "Cloud hosting (service period: 2026-01-01 to 2026-01-31); "
+            "USB cable"
         ),
     )
     client = FakeClient(expected)
 
-    result = extract_invoice_with_ai("Invoice text", api_key="", model="test-model", client=client)
+    result = extract_invoice_with_ai(
+        "Invoice text",
+        api_key="",
+        model="gpt-4.1-mini",
+        client=client,
+    )
 
-    assert result == expected
+    assert result.invoice == expected
+    assert result.metrics.model == "gpt-4.1-mini"
+    assert result.metrics.input_tokens == 1_000
+    assert result.metrics.cached_input_tokens == 100
+    assert result.metrics.output_tokens == 200
+    assert result.metrics.total_tokens == 1_200
+    assert result.metrics.estimated_cost_usd == pytest.approx(0.00069)
+
     assert client.responses.arguments["text_format"] is InvoiceData
     assert client.responses.arguments["store"] is False
-    assert "Use null when a value is missing" in client.responses.arguments["instructions"]
-    assert "products_services_summary" in client.responses.arguments["instructions"]
-    assert "Do not invent a service period" in client.responses.arguments["instructions"]
+    assert (
+        "Use null when a value is missing"
+        in client.responses.arguments["instructions"]
+    )
+    assert (
+        "products_services_summary"
+        in client.responses.arguments["instructions"]
+    )
+    assert (
+        "Do not invent a service period"
+        in client.responses.arguments["instructions"]
+    )
 
 
 def test_rejects_an_empty_model_result() -> None:
     with pytest.raises(AIExtractionError, match="did not return"):
         extract_invoice_with_ai(
-            "Invoice text", api_key="", model="test-model", client=FakeClient(None)
+            "Invoice text",
+            api_key="",
+            model="test-model",
+            client=FakeClient(None),
         )
 
 

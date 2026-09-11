@@ -35,12 +35,35 @@ class InvoiceData(BaseModel):
         return value.strip().upper() if value else None
 
 
+class ProcessingMetrics(BaseModel):
+    """Timing, token usage and estimated cost for one invoice."""
+
+    extraction_method: str = "digital"
+    local_extraction_seconds: float = 0.0
+    ai_processing_seconds: float = 0.0
+    model: str | None = None
+    input_tokens: int = 0
+    cached_input_tokens: int = 0
+    output_tokens: int = 0
+    total_tokens: int = 0
+    estimated_cost_usd: float | None = None
+
+
+class AIExtractionResult(BaseModel):
+    """Structured invoice data and measurements returned by the AI boundary."""
+
+    invoice: InvoiceData
+    metrics: ProcessingMetrics
+
+
 class ExtractedInvoice(BaseModel):
     """Local PDF text waiting for review before it is sent to the AI."""
 
     source_filename: str
     text: str
     extraction_method: str = "digital"
+    local_extraction_seconds: float = 0.0
+
 
 class ProcessedInvoice(BaseModel):
     """An invoice plus local processing metadata."""
@@ -48,3 +71,6 @@ class ProcessedInvoice(BaseModel):
     source_filename: str
     invoice: InvoiceData
     source_text: str = Field(default="", exclude=True)
+    processing_metrics: ProcessingMetrics = Field(
+        default_factory=ProcessingMetrics
+    )

@@ -12,11 +12,20 @@ sys.path.insert(0, str(Path(__file__).parent / "src"))
 
 from invoice_processor.ai_extractor import extract_invoice_with_ai  # noqa: E402
 from invoice_processor.config import load_settings  # noqa: E402
-from invoice_processor.exporters import to_csv_bytes, to_xlsx_bytes  # noqa: E402
+from invoice_processor.exporters import (  # noqa: E402
+    to_accuracy_csv_bytes,
+    to_csv_bytes,
+    to_xlsx_bytes,
+)
+from invoice_processor.metrics import (  # noqa: E402
+    compare_invoice_fields,
+    field_accuracy_percent,
+)
 from invoice_processor.models import (  # noqa: E402
     ExtractedInvoice,
     InvoiceData,
     ProcessedInvoice,
+    ProcessingMetrics,
 )
 from invoice_processor.validation import validate_invoice  # noqa: E402
 from invoice_processor.workflow import (  # noqa: E402
@@ -60,6 +69,91 @@ def _clean(value: object, *, numeric: bool = False) -> object:
     if isinstance(value, str) and not value.strip():
         return None
     return float(value) if numeric else value
+def display_processing_metrics(
+    result: ProcessedInvoice,
+    reviewed: InvoiceData,
+) -> None:
+    """Display timing, token, cost and review-agreement measurements."""
+
+    metrics = getattr(
+        result,
+        "processing_metrics",
+        ProcessingMetrics(),
+    )
+    comparisons = compare_invoice_fields(result.invoice, reviewed)
+    agreement = field_accuracy_percent(comparisons)
+    corrected_fields = [
+        comparison.field_name
+        for comparison in comparisons
+        if not comparison.correct
+    ]
+
+    total_seconds = (
+        metrics.local_extraction_seconds
+        + metrics.ai_processing_seconds
+    )
+
+    if metrics.estimated_cost_usd is None:
+        cost_display = "Unavailable"
+    else:
+        cost_display = f"${metrics.estimated_cost_usd:.6f}"
+
+    if metrics.extraction_method == "ocr":
+        method_display = "Local OCR (Tesseract)"
+    else:
+        method_display = "Digital text extraction"
+
+    with st.expander("Processing measurements"):
+        st.caption(
+            "Review agreement assumes every displayed field has been "
+            "checked against the original invoice."
+        )
+
+        agreement_column, time_column, cost_column = st.columns(3)
+
+        with agreement_column:
+            st.metric(
+                "Field agreement after review",
+                f"{agreement:.2f}%",
+            )
+
+        with time_column:
+            st.metric(
+                "Total processing time",
+                f"{total_seconds:.2f} seconds",
+            )
+
+        with cost_column:
+            st.metric(
+                "Estimated API cost",
+                cost_display,
+            )
+
+        st.write(f"**Reading method:** {method_display}")
+        st.write(
+            f"**Local extraction time:** "
+            f"{metrics.local_extraction_seconds:.4f} seconds"
+        )
+        st.write(
+            f"**AI processing time:** "
+            f"{metrics.ai_processing_seconds:.4f} seconds"
+        )
+        st.write(f"**Model:** {metrics.model or 'Not recorded'}")
+        st.write(f"**Input tokens:** {metrics.input_tokens:,}")
+        st.write(
+            f"**Cached input tokens:** "
+            f"{metrics.cached_input_tokens:,}"
+        )
+        st.write(f"**Output tokens:** {metrics.output_tokens:,}")
+        st.write(f"**Total tokens:** {metrics.total_tokens:,}")
+
+        if corrected_fields:
+            st.warning(
+                "Fields corrected during review: "
+                + ", ".join(corrected_fields)
+            )
+        else:
+            st.success("No fields have been corrected during review.")
 
 
 def review_invoice(
@@ -112,10 +206,18 @@ def review_invoice(
         for issue in issues:
             message = f"{issue.field}: {issue.message}"
             st.error(message) if issue.severity == "error" else st.warning(message)
+    display_processing_metrics(result, reviewed)
+
+
     return ProcessedInvoice(
         source_filename=result.source_filename,
         invoice=reviewed,
         source_text=source_text,
+        processing_metrics=getattr(
+            result,
+            "processing_metrics",
+            ProcessingMetrics(),
+        ),
     )
 
 
@@ -235,21 +337,42 @@ def main() -> None:
 
         if len(reviewed_results) == len(results):
             st.subheader("Export reviewed results")
-            csv_column, xlsx_column = st.columns(2)
+
+            csv_column, xlsx_column, accuracy_column = st.columns(3)
+
             with csv_column:
                 st.download_button(
-                    "Download CSV",
+                    "Download invoice CSV",
                     data=to_csv_bytes(reviewed_results),
                     file_name="invoice_results.csv",
                     mime="text/csv",
                     use_container_width=True,
                 )
+
             with xlsx_column:
                 st.download_button(
-                    "Download Excel",
-                    data=to_xlsx_bytes(reviewed_results),
+                    "Download Excel report",
+                    data=to_xlsx_bytes(
+                        reviewed_results,
+                        original_results=results,
+                    ),
                     file_name="invoice_results.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    mime=(
+                        "application/vnd.openxmlformats-officedocument."
+                        "spreadsheetml.sheet"
+                    ),
+                    use_container_width=True,
+                )
+
+            with accuracy_column:
+                st.download_button(
+                    "Download accuracy CSV",
+                    data=to_accuracy_csv_bytes(
+                        results,
+                        reviewed_results,
+                    ),
+                    file_name="invoice_accuracy.csv",
+                    mime="text/csv",
                     use_container_width=True,
                 )
 
