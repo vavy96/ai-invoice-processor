@@ -70,6 +70,7 @@ class ProcessedInvoice(BaseModel):
 
     source_filename: str
     invoice: InvoiceData
+    customer_profile_key: str = "standard"
     source_text: str = Field(default="", exclude=True)
     processing_metrics: ProcessingMetrics = Field(
         default_factory=ProcessingMetrics

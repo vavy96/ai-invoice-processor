@@ -139,3 +139,22 @@ def test_invoice_export_identifies_duplicate() -> None:
 
     assert dataframe.loc[1, "possible_duplicate"] == True
     assert dataframe.loc[1, "duplicate_of"] == "invoice.pdf"
+
+
+def test_csv_and_xlsx_include_customer_profile() -> None:
+    result = sample_results()[0].model_copy(
+        update={"customer_profile_key": "vat"},
+        deep=True,
+    )
+
+    csv_text = to_csv_bytes([result]).decode("utf-8-sig")
+
+    assert "customer_profile" in csv_text
+    assert "vat" in csv_text
+
+    invoices = pd.read_excel(
+        BytesIO(to_xlsx_bytes([result])),
+        sheet_name="Invoices",
+    )
+
+    assert invoices.loc[0, "customer_profile"] == "vat"

@@ -11,6 +11,7 @@ from .models import ProcessedInvoice, ProcessingMetrics
 
 INVOICE_COLUMNS = [
     "source_filename",
+    "customer_profile",
     "supplier_name",
     "supplier_tax_id",
     "invoice_number",
@@ -74,6 +75,11 @@ def invoices_dataframe(
         rows.append(
             {
                 "source_filename": result.source_filename,
+                "customer_profile": getattr(
+                    result,
+                    "customer_profile_key",
+                    "standard",
+                ),
                 "supplier_name": invoice.supplier_name,
                 "supplier_tax_id": invoice.supplier_tax_id,
                 "invoice_number": invoice.invoice_number,

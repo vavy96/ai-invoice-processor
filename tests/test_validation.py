@@ -5,6 +5,7 @@ from datetime import date
 import pytest
 from pydantic import ValidationError
 
+from invoice_processor.customer_profiles import get_customer_profile
 from invoice_processor.models import InvoiceData
 from invoice_processor.validation import validate_invoice
 
@@ -87,3 +88,59 @@ def test_allows_a_negative_total_for_a_credit_note() -> None:
 def test_typed_model_rejects_invalid_amounts_and_dates(field: str, value: str) -> None:
     with pytest.raises(ValidationError):
         InvoiceData.model_validate({field: value})
+
+
+def test_standard_profile_requires_invoice_date() -> None:
+    invoice = valid_invoice().model_copy(
+        update={"invoice_date": None}
+    )
+
+    issues = validate_invoice(invoice)
+
+    assert "invoice_date" in {
+        issue.field for issue in issues
+    }
+
+
+def test_services_profile_requires_service_summary() -> None:
+    profile = get_customer_profile("services")
+
+    issues = validate_invoice(
+        valid_invoice(),
+        profile=profile,
+    )
+
+    assert "products_services_summary" in {
+        issue.field for issue in issues
+    }
+
+
+def test_purchase_order_profile_requires_po_number() -> None:
+    profile = get_customer_profile("purchase_order")
+
+    issues = validate_invoice(
+        valid_invoice(),
+        profile=profile,
+    )
+
+    assert "purchase_order_number" in {
+        issue.field for issue in issues
+    }
+
+
+def test_vat_profile_requires_net_and_tax_amounts() -> None:
+    profile = get_customer_profile("vat")
+    invoice = valid_invoice().model_copy(
+        update={
+            "net_amount": None,
+            "tax_amount": None,
+        }
+    )
+
+    issues = validate_invoice(
+        invoice,
+        profile=profile,
+    )
+    issue_fields = {issue.field for issue in issues}
+
+    assert {"net_amount", "tax_amount"} <= issue_fields

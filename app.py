@@ -12,6 +12,10 @@ sys.path.insert(0, str(Path(__file__).parent / "src"))
 
 from invoice_processor.ai_extractor import extract_invoice_with_ai  # noqa: E402
 from invoice_processor.config import load_settings  # noqa: E402
+from invoice_processor.customer_profiles import (  # noqa: E402
+    CUSTOMER_PROFILES,
+    CustomerProfile,
+)
 from invoice_processor.duplicate_detector import (  # noqa: E402
     find_duplicate_invoices,
 )
@@ -163,6 +167,8 @@ def review_invoice(
     result: ProcessedInvoice,
     index: int,
     fallback_source_text: str = "",
+    *,
+    profile: CustomerProfile,
 ) -> ProcessedInvoice | None:
     """Render editable fields and return the current reviewed invoice."""
 
@@ -171,6 +177,9 @@ def review_invoice(
     # text stored by the earlier PDF-preview stage for those existing sessions.
     source_text = getattr(result, "source_text", fallback_source_text)
     st.subheader(result.source_filename)
+    st.caption(
+        f"Validation profile: {profile.display_name}"
+    )
     summary = pd.DataFrame(
         [
             {
@@ -202,7 +211,11 @@ def review_invoice(
         st.error(f"Please correct an invalid value: {exc}")
         return None
 
-    issues = validate_invoice(reviewed, source_text)
+    issues = validate_invoice(
+        reviewed,
+        source_text,
+        profile=profile,
+    )
     if not issues:
         st.success("Validation passed.")
     else:
@@ -215,6 +228,7 @@ def review_invoice(
     return ProcessedInvoice(
         source_filename=result.source_filename,
         invoice=reviewed,
+        customer_profile_key=profile.key,
         source_text=source_text,
         processing_metrics=getattr(
             result,
@@ -241,8 +255,31 @@ def main() -> None:
             type="password",
             help="Used for this local session. You can also set OPENAI_API_KEY in .env.",
         )
-        model = st.text_input("Model", value=settings.openai_model)
-        st.caption("Invoice text is sent to the selected OpenAI model. API response storage is disabled.")
+        model = st.text_input(
+            "Model",
+            value=settings.openai_model,
+        )
+
+        selected_profile_key = st.selectbox(
+            "Customer profile",
+            options=list(CUSTOMER_PROFILES),
+            format_func=lambda profile_key: (
+                CUSTOMER_PROFILES[profile_key].display_name
+            ),
+            help=(
+                "Controls which invoice fields are required "
+                "during validation."
+            ),
+        )
+        selected_profile = CUSTOMER_PROFILES[
+            selected_profile_key
+        ]
+
+        st.caption(selected_profile.description)
+        st.caption(
+            "Invoice text is sent to the selected OpenAI model. "
+            "API response storage is disabled."
+        )
 
     uploads = st.file_uploader(
         "Choose one or more PDF invoices",
@@ -333,7 +370,11 @@ def main() -> None:
                 reviewed = review_invoice(
                     result,
                     index,
-                    source_text_by_filename.get(result.source_filename, ""),
+                    source_text_by_filename.get(
+                        result.source_filename,
+                        "",
+                    ),
+                    profile=selected_profile,
                 )
                 if reviewed is not None:
                     reviewed_results.append(reviewed)
