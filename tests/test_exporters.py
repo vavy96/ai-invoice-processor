@@ -6,6 +6,7 @@ import pandas as pd
 import pytest
 
 from invoice_processor.exporters import (
+    invoices_dataframe,
     to_accuracy_csv_bytes,
     to_csv_bytes,
     to_xlsx_bytes,
@@ -122,3 +123,19 @@ def test_accuracy_csv_identifies_corrected_field() -> None:
     assert "total_amount" in csv_text
     assert "False" in csv_text
     assert "91.67" in csv_text
+
+
+def test_invoice_export_identifies_duplicate() -> None:
+    original = sample_results()[0]
+    duplicate = original.model_copy(
+        update={"source_filename": "invoice-copy.pdf"},
+        deep=True,
+    )
+
+    dataframe = invoices_dataframe([original, duplicate])
+
+    assert dataframe.loc[0, "possible_duplicate"] == False
+    assert dataframe.loc[0, "duplicate_of"] == ""
+
+    assert dataframe.loc[1, "possible_duplicate"] == True
+    assert dataframe.loc[1, "duplicate_of"] == "invoice.pdf"

@@ -12,6 +12,9 @@ sys.path.insert(0, str(Path(__file__).parent / "src"))
 
 from invoice_processor.ai_extractor import extract_invoice_with_ai  # noqa: E402
 from invoice_processor.config import load_settings  # noqa: E402
+from invoice_processor.duplicate_detector import (  # noqa: E402
+    find_duplicate_invoices,
+)
 from invoice_processor.exporters import (  # noqa: E402
     to_accuracy_csv_bytes,
     to_csv_bytes,
@@ -336,6 +339,24 @@ def main() -> None:
                     reviewed_results.append(reviewed)
 
         if len(reviewed_results) == len(results):
+            duplicates = find_duplicate_invoices(reviewed_results)
+
+            st.subheader("Duplicate invoice check")
+
+            if duplicates:
+                for duplicate in duplicates:
+                    st.warning(
+                        f"Possible duplicate: "
+                        f"{duplicate.duplicate_filename} matches "
+                        f"{duplicate.original_filename}. "
+                        "They have the same supplier identity and "
+                        "invoice number."
+                    )
+            else:
+                st.success(
+                    "No duplicate invoices were detected in this batch."
+                )
+
             st.subheader("Export reviewed results")
 
             csv_column, xlsx_column, accuracy_column = st.columns(3)

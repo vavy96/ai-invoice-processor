@@ -4,6 +4,7 @@ from io import BytesIO
 
 import pandas as pd
 
+from .duplicate_detector import find_duplicate_invoices
 from .metrics import compare_invoice_fields, field_accuracy_percent
 from .models import ProcessedInvoice, ProcessingMetrics
 
@@ -32,6 +33,8 @@ INVOICE_COLUMNS = [
     "output_tokens",
     "total_tokens",
     "estimated_cost_usd",
+    "possible_duplicate",
+    "duplicate_of",
 ]
 
 ACCURACY_COLUMNS = [
@@ -50,9 +53,14 @@ def invoices_dataframe(
     """Flatten reviewed invoices and measurements into one row per PDF."""
 
     rows = []
+    duplicate_matches = {
+        duplicate.duplicate_index: duplicate
+        for duplicate in find_duplicate_invoices(results)
+    }
 
-    for result in results:
+    for index, result in enumerate(results):
         invoice = result.invoice
+        duplicate = duplicate_matches.get(index)
         metrics = getattr(
             result,
             "processing_metrics",
@@ -108,6 +116,12 @@ def invoices_dataframe(
                 "output_tokens": metrics.output_tokens,
                 "total_tokens": metrics.total_tokens,
                 "estimated_cost_usd": metrics.estimated_cost_usd,
+                "possible_duplicate": duplicate is not None,
+                "duplicate_of": (
+                    duplicate.original_filename
+                    if duplicate is not None
+                    else ""
+                ),
             }
         )
 
