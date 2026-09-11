@@ -1,0 +1,28 @@
+# Local secrets
+.env
+.streamlit/secrets.toml
+
+# Virtual environments
+.venv/
+venv/
+
+# Python and test caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+.streamlit-server*.log
+
+# Local exports and editor files
+*.csv
+*.xlsx
+*.xls
+*.pdf
+uploads/
+invoices/
+output/
+outputs/
+temp/
+tmp/
+.vscode/
+.idea/
