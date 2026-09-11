@@ -22,6 +22,7 @@ from invoice_processor.duplicate_detector import (  # noqa: E402
 from invoice_processor.exporters import (  # noqa: E402
     to_accuracy_csv_bytes,
     to_csv_bytes,
+    to_line_items_csv_bytes,
     to_xlsx_bytes,
 )
 from invoice_processor.metrics import (  # noqa: E402
@@ -31,6 +32,7 @@ from invoice_processor.metrics import (  # noqa: E402
 from invoice_processor.models import (  # noqa: E402
     ExtractedInvoice,
     InvoiceData,
+    InvoiceLineItem,
     ProcessedInvoice,
     ProcessingMetrics,
 )
@@ -56,6 +58,29 @@ SUMMARY_COLUMNS = [
     "confidence_notes",
 ]
 NUMBER_FIELDS = {"net_amount", "tax_amount", "total_amount"}
+
+LINE_ITEM_COLUMNS = [
+    "description",
+    "item_type",
+    "quantity",
+    "unit",
+    "unit_price",
+    "net_amount",
+    "tax_rate_percent",
+    "tax_amount",
+    "total_amount",
+    "service_period_start",
+    "service_period_end",
+]
+
+LINE_ITEM_NUMBER_FIELDS = {
+    "quantity",
+    "unit_price",
+    "net_amount",
+    "tax_rate_percent",
+    "tax_amount",
+    "total_amount",
+}
 
 
 def _display_value(value: object) -> object:
@@ -200,12 +225,111 @@ def review_invoice(
         },
     )
 
+    st.markdown("**Invoice line items**")
+    st.caption(
+        "Review the extracted products and services. "
+        "You can add or remove rows."
+    )
+
+    line_item_rows = [
+        {
+            field: getattr(item, field, None)
+            for field in LINE_ITEM_COLUMNS
+        }
+        for item in getattr(invoice, "line_items", [])
+    ]
+    line_items_dataframe = pd.DataFrame(
+        line_item_rows,
+        columns=LINE_ITEM_COLUMNS,
+    )
+
+    edited_line_items = st.data_editor(
+        line_items_dataframe,
+        key=f"line_items_{index}",
+        hide_index=True,
+        use_container_width=True,
+        num_rows="dynamic",
+        column_config={
+            "description": st.column_config.TextColumn(
+                "Description",
+                required=False,
+            ),
+            "item_type": st.column_config.SelectboxColumn(
+                "Type",
+                options=["product", "service", "other"],
+                required=False,
+            ),
+            "quantity": st.column_config.NumberColumn(
+                "Quantity",
+                format="%.2f",
+            ),
+            "unit": st.column_config.TextColumn("Unit"),
+            "unit_price": st.column_config.NumberColumn(
+                "Unit price",
+                format="%.2f",
+            ),
+            "net_amount": st.column_config.NumberColumn(
+                "Net amount",
+                format="%.2f",
+            ),
+            "tax_rate_percent": st.column_config.NumberColumn(
+                "Tax rate %",
+                format="%.2f",
+            ),
+            "tax_amount": st.column_config.NumberColumn(
+                "Tax amount",
+                format="%.2f",
+            ),
+            "total_amount": st.column_config.NumberColumn(
+                "Total amount",
+                format="%.2f",
+            ),
+            "service_period_start": st.column_config.DateColumn(
+                "Service start",
+                format="YYYY-MM-DD",
+            ),
+            "service_period_end": st.column_config.DateColumn(
+                "Service end",
+                format="YYYY-MM-DD",
+            ),
+        },
+    )
+
     try:
         row = edited_summary.iloc[0].to_dict()
         cleaned_summary = {
-            field: _clean(row.get(field), numeric=field in NUMBER_FIELDS)
+            field: _clean(
+                row.get(field),
+                numeric=field in NUMBER_FIELDS,
+            )
             for field in SUMMARY_COLUMNS
         }
+
+        cleaned_line_items: list[InvoiceLineItem] = []
+
+        for _, item_row in edited_line_items.iterrows():
+            item_values = {
+                field: _clean(
+                    item_row.get(field),
+                    numeric=field in LINE_ITEM_NUMBER_FIELDS,
+                )
+                for field in LINE_ITEM_COLUMNS
+            }
+
+            if all(
+                value is None
+                for value in item_values.values()
+            ):
+                continue
+
+            if item_values["description"] is None:
+                item_values["description"] = ""
+
+            cleaned_line_items.append(
+                InvoiceLineItem.model_validate(item_values)
+            )
+
+        cleaned_summary["line_items"] = cleaned_line_items
         reviewed = InvoiceData.model_validate(cleaned_summary)
     except (ValueError, TypeError) as exc:
         st.error(f"Please correct an invalid value: {exc}")
@@ -400,13 +524,29 @@ def main() -> None:
 
             st.subheader("Export reviewed results")
 
-            csv_column, xlsx_column, accuracy_column = st.columns(3)
+            (
+                csv_column,
+                line_items_column,
+                xlsx_column,
+                accuracy_column,
+            ) = st.columns(4)
 
             with csv_column:
                 st.download_button(
                     "Download invoice CSV",
                     data=to_csv_bytes(reviewed_results),
                     file_name="invoice_results.csv",
+                    mime="text/csv",
+                    use_container_width=True,
+                )
+
+            with line_items_column:
+                st.download_button(
+                    "Download line-item CSV",
+                    data=to_line_items_csv_bytes(
+                        reviewed_results
+                    ),
+                    file_name="invoice_line_items.csv",
                     mime="text/csv",
                     use_container_width=True,
                 )

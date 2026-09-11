@@ -74,6 +74,7 @@ def compare_invoice_fields(
             correct=extracted_values[field_name] == reviewed_values[field_name],
         )
         for field_name in InvoiceData.model_fields
+        if field_name != "line_items"
     ]
 
 

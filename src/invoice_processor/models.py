@@ -1,8 +1,27 @@
 """Typed data models shared across the application."""
 
 from datetime import date
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+
+class InvoiceLineItem(BaseModel):
+    """One product or service line extracted from an invoice."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    description: str
+    item_type: Literal["product", "service", "other"] | None = None
+    quantity: float | None = None
+    unit: str | None = None
+    unit_price: float | None = None
+    net_amount: float | None = None
+    tax_rate_percent: float | None = None
+    tax_amount: float | None = None
+    total_amount: float | None = None
+    service_period_start: date | None = None
+    service_period_end: date | None = None
 
 
 class InvoiceData(BaseModel):
@@ -27,6 +46,15 @@ class InvoiceData(BaseModel):
             "Include each service period only when the invoice states one."
         ),
     )
+
+    line_items: list[InvoiceLineItem] = Field(
+        default_factory=list,
+        description=(
+            "Products and services extracted in their original "
+            "invoice order. Missing values must remain null."
+        ),
+    )
+
     confidence_notes: str | None = None
 
     @field_validator("currency")

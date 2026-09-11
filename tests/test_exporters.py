@@ -1,5 +1,6 @@
 """Tests for CSV, XLSX and accuracy exports."""
 
+from datetime import date
 from io import BytesIO
 
 import pandas as pd
@@ -7,12 +8,15 @@ import pytest
 
 from invoice_processor.exporters import (
     invoices_dataframe,
+    line_items_dataframe,
     to_accuracy_csv_bytes,
     to_csv_bytes,
+    to_line_items_csv_bytes,
     to_xlsx_bytes,
 )
 from invoice_processor.models import (
     InvoiceData,
+    InvoiceLineItem,
     ProcessedInvoice,
     ProcessingMetrics,
 )
@@ -83,6 +87,7 @@ def test_xlsx_contains_invoices_and_accuracy() -> None:
 
     assert workbook.sheet_names == [
         "Invoices",
+        "Line Items",
         "Field Accuracy",
     ]
 
@@ -158,3 +163,66 @@ def test_csv_and_xlsx_include_customer_profile() -> None:
     )
 
     assert invoices.loc[0, "customer_profile"] == "vat"
+
+
+def test_csv_and_xlsx_export_reviewed_line_items() -> None:
+    result = sample_results()[0]
+    invoice = result.invoice.model_copy(
+        update={
+            "line_items": [
+                InvoiceLineItem(
+                    description="Managed IT support",
+                    item_type="service",
+                    quantity=1,
+                    unit="month",
+                    unit_price=500,
+                    net_amount=500,
+                    tax_rate_percent=20,
+                    tax_amount=100,
+                    total_amount=600,
+                    service_period_start=date(2026, 8, 1),
+                    service_period_end=date(2026, 8, 31),
+                )
+            ]
+        }
+    )
+    reviewed_result = result.model_copy(
+        update={
+            "invoice": invoice,
+            "customer_profile_key": "services",
+        }
+    )
+
+    dataframe = line_items_dataframe([reviewed_result])
+
+    assert len(dataframe) == 1
+    assert dataframe.loc[0, "line_number"] == 1
+    assert dataframe.loc[0, "description"] == "Managed IT support"
+    assert dataframe.loc[0, "customer_profile"] == "services"
+    assert dataframe.loc[0, "service_period_start"] == "2026-08-01"
+    assert dataframe.loc[0, "service_period_end"] == "2026-08-31"
+
+    csv_text = to_line_items_csv_bytes(
+        [reviewed_result]
+    ).decode("utf-8-sig")
+
+    assert "Managed IT support" in csv_text
+    assert "2026-08-01" in csv_text
+
+    workbook = pd.ExcelFile(
+        BytesIO(to_xlsx_bytes([reviewed_result]))
+    )
+    exported_lines = pd.read_excel(
+        workbook,
+        sheet_name="Line Items",
+    )
+
+    assert len(exported_lines) == 1
+    assert (
+        exported_lines.loc[0, "description"]
+        == "Managed IT support"
+    )
+    assert (
+        exported_lines.loc[0, "customer_profile"]
+        == "services"
+    )

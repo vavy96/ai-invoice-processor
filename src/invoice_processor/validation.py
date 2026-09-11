@@ -9,7 +9,7 @@ from .customer_profiles import (
     CustomerProfile,
     get_customer_profile,
 )
-from .models import InvoiceData
+from .models import InvoiceData, InvoiceLineItem
 
 
 @dataclass(frozen=True)
@@ -51,6 +51,128 @@ def _appears_to_be_credit_note(source_text: str) -> bool:
             flags=re.IGNORECASE,
         )
     )
+
+
+def validate_line_item(
+    item: InvoiceLineItem,
+    index: int,
+) -> list[ValidationIssue]:
+    """Validate one product or service line."""
+
+    issues: list[ValidationIssue] = []
+    line_number = index + 1
+    field_prefix = f"line_items[{index}]"
+
+    if not item.description.strip():
+        issues.append(
+            ValidationIssue(
+                f"{field_prefix}.description",
+                f"Line {line_number} description is missing.",
+            )
+        )
+
+    if (
+        item.quantity is not None
+        and item.unit_price is not None
+        and item.net_amount is not None
+    ):
+        expected_net = item.quantity * item.unit_price
+
+        if not _close(expected_net, item.net_amount):
+            issues.append(
+                ValidationIssue(
+                    f"{field_prefix}.net_amount",
+                    (
+                        f"Line {line_number} quantity multiplied by "
+                        f"unit price is {expected_net:.2f}, not "
+                        f"{item.net_amount:.2f}."
+                    ),
+                    "error",
+                )
+            )
+
+    if (
+        item.net_amount is not None
+        and item.tax_amount is not None
+        and item.total_amount is not None
+    ):
+        expected_total = item.net_amount + item.tax_amount
+
+        if not _close(expected_total, item.total_amount):
+            issues.append(
+                ValidationIssue(
+                    f"{field_prefix}.total_amount",
+                    (
+                        f"Line {line_number} net amount plus tax is "
+                        f"{expected_total:.2f}, not "
+                        f"{item.total_amount:.2f}."
+                    ),
+                    "error",
+                )
+            )
+
+    if (
+        item.net_amount is not None
+        and item.tax_rate_percent is not None
+        and item.tax_amount is not None
+    ):
+        expected_tax = (
+            item.net_amount * item.tax_rate_percent / 100
+        )
+
+        if not _close(expected_tax, item.tax_amount):
+            issues.append(
+                ValidationIssue(
+                    f"{field_prefix}.tax_amount",
+                    (
+                        f"Line {line_number} tax calculated from the "
+                        f"stated rate is {expected_tax:.2f}, not "
+                        f"{item.tax_amount:.2f}."
+                    ),
+                    "error",
+                )
+            )
+
+    period_start = item.service_period_start
+    period_end = item.service_period_end
+
+    if period_start is not None and period_end is None:
+        issues.append(
+            ValidationIssue(
+                f"{field_prefix}.service_period_end",
+                (
+                    f"Line {line_number} has a service-period start "
+                    "but no end date."
+                ),
+            )
+        )
+    elif period_start is None and period_end is not None:
+        issues.append(
+            ValidationIssue(
+                f"{field_prefix}.service_period_start",
+                (
+                    f"Line {line_number} has a service-period end "
+                    "but no start date."
+                ),
+            )
+        )
+    elif (
+        period_start is not None
+        and period_end is not None
+        and period_end < period_start
+    ):
+        issues.append(
+            ValidationIssue(
+                f"{field_prefix}.service_period_end",
+                (
+                    f"Line {line_number} service-period end date is "
+                    "before its start date."
+                ),
+                "error",
+            )
+        )
+
+    return issues
 
 
 def validate_invoice(
@@ -149,5 +271,8 @@ def validate_invoice(
                     "error",
                 )
             )
+
+    for index, item in enumerate(invoice.line_items):
+        issues.extend(validate_line_item(item, index))
 
     return issues

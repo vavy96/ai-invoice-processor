@@ -6,7 +6,7 @@ import pytest
 from pydantic import ValidationError
 
 from invoice_processor.customer_profiles import get_customer_profile
-from invoice_processor.models import InvoiceData
+from invoice_processor.models import InvoiceData, InvoiceLineItem
 from invoice_processor.validation import validate_invoice
 
 
@@ -144,3 +144,116 @@ def test_vat_profile_requires_net_and_tax_amounts() -> None:
     issue_fields = {issue.field for issue in issues}
 
     assert {"net_amount", "tax_amount"} <= issue_fields
+
+
+def test_accepts_a_valid_line_item() -> None:
+    item = InvoiceLineItem(
+        description="Wireless keyboard",
+        item_type="product",
+        quantity=2,
+        unit_price=40,
+        net_amount=80,
+        tax_rate_percent=20,
+        tax_amount=16,
+        total_amount=96,
+    )
+    invoice = valid_invoice().model_copy(
+        update={"line_items": [item]}
+    )
+
+    assert validate_invoice(invoice) == []
+
+
+def test_detects_a_missing_line_description() -> None:
+    item = InvoiceLineItem(description="")
+    invoice = valid_invoice().model_copy(
+        update={"line_items": [item]}
+    )
+
+    issues = validate_invoice(invoice)
+
+    assert "line_items[0].description" in {
+        issue.field for issue in issues
+    }
+
+
+def test_detects_incorrect_line_net_amount() -> None:
+    item = InvoiceLineItem(
+        description="Keyboard",
+        quantity=2,
+        unit_price=40,
+        net_amount=90,
+    )
+    invoice = valid_invoice().model_copy(
+        update={"line_items": [item]}
+    )
+
+    issues = validate_invoice(invoice)
+
+    assert "line_items[0].net_amount" in {
+        issue.field for issue in issues
+    }
+
+
+def test_detects_incorrect_line_total() -> None:
+    item = InvoiceLineItem(
+        description="Keyboard",
+        net_amount=80,
+        tax_amount=16,
+        total_amount=100,
+    )
+    invoice = valid_invoice().model_copy(
+        update={"line_items": [item]}
+    )
+
+    issues = validate_invoice(invoice)
+
+    assert "line_items[0].total_amount" in {
+        issue.field for issue in issues
+    }
+
+
+def test_detects_incorrect_line_tax() -> None:
+    item = InvoiceLineItem(
+        description="Keyboard",
+        net_amount=80,
+        tax_rate_percent=20,
+        tax_amount=10,
+    )
+    invoice = valid_invoice().model_copy(
+        update={"line_items": [item]}
+    )
+
+    issues = validate_invoice(invoice)
+
+    assert "line_items[0].tax_amount" in {
+        issue.field for issue in issues
+    }
+
+
+def test_detects_invalid_service_periods() -> None:
+    incomplete_period = InvoiceLineItem(
+        description="Monthly support",
+        item_type="service",
+        service_period_start=date(2026, 8, 1),
+    )
+    reversed_period = InvoiceLineItem(
+        description="Security monitoring",
+        item_type="service",
+        service_period_start=date(2026, 8, 31),
+        service_period_end=date(2026, 8, 1),
+    )
+    invoice = valid_invoice().model_copy(
+        update={
+            "line_items": [
+                incomplete_period,
+                reversed_period,
+            ]
+        }
+    )
+
+    issues = validate_invoice(invoice)
+    issue_fields = {issue.field for issue in issues}
+
+    assert "line_items[0].service_period_end" in issue_fields
+    assert "line_items[1].service_period_end" in issue_fields

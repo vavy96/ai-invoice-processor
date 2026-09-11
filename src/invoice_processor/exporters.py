@@ -38,6 +38,24 @@ INVOICE_COLUMNS = [
     "duplicate_of",
 ]
 
+LINE_ITEM_EXPORT_COLUMNS = [
+    "source_filename",
+    "customer_profile",
+    "invoice_number",
+    "line_number",
+    "description",
+    "item_type",
+    "quantity",
+    "unit",
+    "unit_price",
+    "net_amount",
+    "tax_rate_percent",
+    "tax_amount",
+    "total_amount",
+    "service_period_start",
+    "service_period_end",
+]
+
 ACCURACY_COLUMNS = [
     "source_filename",
     "field_name",
@@ -134,6 +152,59 @@ def invoices_dataframe(
     return pd.DataFrame(rows, columns=INVOICE_COLUMNS)
 
 
+def line_items_dataframe(
+    results: list[ProcessedInvoice],
+) -> pd.DataFrame:
+    """Create one export row for each reviewed invoice line."""
+
+    rows = []
+
+    for result in results:
+        invoice = result.invoice
+        customer_profile = getattr(
+            result,
+            "customer_profile_key",
+            "standard",
+        )
+
+        for line_number, item in enumerate(
+            invoice.line_items,
+            start=1,
+        ):
+            rows.append(
+                {
+                    "source_filename": result.source_filename,
+                    "customer_profile": customer_profile,
+                    "invoice_number": invoice.invoice_number,
+                    "line_number": line_number,
+                    "description": item.description,
+                    "item_type": item.item_type,
+                    "quantity": item.quantity,
+                    "unit": item.unit,
+                    "unit_price": item.unit_price,
+                    "net_amount": item.net_amount,
+                    "tax_rate_percent": item.tax_rate_percent,
+                    "tax_amount": item.tax_amount,
+                    "total_amount": item.total_amount,
+                    "service_period_start": (
+                        item.service_period_start.isoformat()
+                        if item.service_period_start
+                        else ""
+                    ),
+                    "service_period_end": (
+                        item.service_period_end.isoformat()
+                        if item.service_period_end
+                        else ""
+                    ),
+                }
+            )
+
+    return pd.DataFrame(
+        rows,
+        columns=LINE_ITEM_EXPORT_COLUMNS,
+    )
+
+
 def accuracy_dataframe(
     original_results: list[ProcessedInvoice],
     reviewed_results: list[ProcessedInvoice],
@@ -196,6 +267,18 @@ def to_csv_bytes(results: list[ProcessedInvoice]) -> bytes:
     )
 
 
+def to_line_items_csv_bytes(
+    results: list[ProcessedInvoice],
+) -> bytes:
+    """Create a UTF-8 CSV containing reviewed line items."""
+
+    return (
+        line_items_dataframe(results)
+        .to_csv(index=False)
+        .encode("utf-8-sig")
+    )
+
+
 def to_accuracy_csv_bytes(
     original_results: list[ProcessedInvoice],
     reviewed_results: list[ProcessedInvoice],
@@ -228,6 +311,11 @@ def to_xlsx_bytes(
         invoices_dataframe(reviewed_results).to_excel(
             writer,
             sheet_name="Invoices",
+            index=False,
+        )
+        line_items_dataframe(reviewed_results).to_excel(
+            writer,
+            sheet_name="Line Items",
             index=False,
         )
         accuracy_dataframe(
