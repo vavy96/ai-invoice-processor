@@ -10,8 +10,8 @@ from invoice_processor.workflow import (
 
 def test_workflow_passes_pdf_text_to_ai(monkeypatch) -> None:
     monkeypatch.setattr(
-        "invoice_processor.workflow.extract_text_from_pdf",
-        lambda _pdf: "Invoice text from the PDF",
+        "invoice_processor.workflow.extract_text_from_pdf_with_method",
+        lambda _pdf: ("Invoice text from the PDF", "digital"),
     )
     seen: list[str] = []
 
@@ -33,8 +33,8 @@ def test_workflow_passes_pdf_text_to_ai(monkeypatch) -> None:
 
 def test_extraction_stage_does_not_need_an_ai_extractor(monkeypatch) -> None:
     monkeypatch.setattr(
-        "invoice_processor.workflow.extract_text_from_pdf",
-        lambda _pdf: "Locally extracted invoice text",
+        "invoice_processor.workflow.extract_text_from_pdf_with_method",
+        lambda _pdf: ("Locally extracted invoice text", "digital"),
     )
 
     extracted = extract_invoice_text(b"pdf", "local.pdf")
@@ -45,7 +45,7 @@ def test_extraction_stage_does_not_need_an_ai_extractor(monkeypatch) -> None:
 
 def test_ai_stage_uses_already_previewed_text(monkeypatch) -> None:
     monkeypatch.setattr(
-        "invoice_processor.workflow.extract_text_from_pdf",
+        "invoice_processor.workflow.extract_text_from_pdf_with_method",
         lambda _pdf: (_ for _ in ()).throw(AssertionError("PDF should not be read again")),
     )
     extracted = ExtractedInvoice(

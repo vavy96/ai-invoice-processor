@@ -40,7 +40,7 @@ class ExtractedInvoice(BaseModel):
 
     source_filename: str
     text: str
-
+    extraction_method: str = "digital"
 
 class ProcessedInvoice(BaseModel):
     """An invoice plus local processing metadata."""

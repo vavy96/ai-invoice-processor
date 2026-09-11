@@ -1,38 +1,62 @@
-"""Text extraction for digital PDF invoices."""
+"""PDF text extraction with a local OCR fallback."""
 
 from io import BytesIO
 
 from pypdf import PdfReader
 
+from .ocr_extractor import OCRExtractionError, extract_text_with_ocr
+
 
 class PDFExtractionError(ValueError):
-    """Raised when a PDF cannot provide usable digital text."""
+    """Raised when neither digital extraction nor OCR returns useful text."""
 
 
-def extract_text_from_pdf(pdf_bytes: bytes) -> str:
-    """Return embedded text from a PDF.
+MIN_DIGITAL_CHARACTERS = 10
 
-    This intentionally does not perform OCR. Scanned/image-only invoices receive a
-    helpful error so that the limitation is obvious to the user.
-    """
+
+def _has_enough_digital_text(text: str) -> bool:
+    """Return True when extracted text is substantial enough to use."""
+
+    readable_characters = sum(character.isalnum() for character in text)
+    return readable_characters >= MIN_DIGITAL_CHARACTERS
+
+
+def extract_text_from_pdf_with_method(
+    pdf_bytes: bytes,
+) -> tuple[str, str]:
+    """Extract PDF text and report whether digital extraction or OCR was used."""
 
     if not pdf_bytes:
         raise PDFExtractionError("The uploaded PDF is empty.")
 
     try:
         reader = PdfReader(BytesIO(pdf_bytes))
-        if reader.is_encrypted and reader.decrypt("") == 0:
-            raise PDFExtractionError("The PDF is password protected.")
-        pages = [page.extract_text() or "" for page in reader.pages]
-    except PDFExtractionError:
-        raise
+        page_text = [
+            (page.extract_text() or "").strip()
+            for page in reader.pages
+        ]
     except Exception as exc:
-        raise PDFExtractionError("The file could not be read as a PDF.") from exc
+        raise PDFExtractionError(f"The PDF could not be read: {exc}") from exc
 
-    text = "\n\n".join(page.strip() for page in pages if page.strip()).strip()
-    if len(text) < 20:
+    combined_text = "\n\n".join(
+        text for text in page_text if text
+    ).strip()
+
+    if _has_enough_digital_text(combined_text):
+        return combined_text, "digital"
+
+    try:
+        ocr_text = extract_text_with_ocr(pdf_bytes)
+        return ocr_text, "ocr"
+    except OCRExtractionError as exc:
         raise PDFExtractionError(
-            "No usable digital text was found. Version 1 does not support scanned "
-            "or image-only PDFs (OCR is not included)."
-        )
+            "The PDF appears scanned or image-only. "
+            f"Local OCR could not extract readable text: {exc}"
+        ) from exc
+
+
+def extract_text_from_pdf(pdf_bytes: bytes) -> str:
+    """Extract text while preserving the original text-only interface."""
+
+    text, _method = extract_text_from_pdf_with_method(pdf_bytes)
     return text

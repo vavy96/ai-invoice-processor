@@ -3,15 +3,18 @@
 from collections.abc import Callable
 
 from .models import ExtractedInvoice, InvoiceData, ProcessedInvoice
-from .pdf_extractor import extract_text_from_pdf
+from .pdf_extractor import extract_text_from_pdf_with_method
 
 
 def extract_invoice_text(pdf_bytes: bytes, filename: str) -> ExtractedInvoice:
-    """Extract local PDF text without contacting an AI service."""
+    """Extract PDF text locally and record the reading method used."""
+
+    text, extraction_method = extract_text_from_pdf_with_method(pdf_bytes)
 
     return ExtractedInvoice(
         source_filename=filename,
-        text=extract_text_from_pdf(pdf_bytes),
+        text=text,
+        extraction_method=extraction_method,
     )
 
 

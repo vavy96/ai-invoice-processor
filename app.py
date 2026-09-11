@@ -123,9 +123,9 @@ def main() -> None:
     st.set_page_config(page_title="AI Invoice Processor", page_icon="🧾", layout="wide")
     st.title("🧾 AI Invoice Processor")
     st.write(
-        "Upload digital PDF invoices, extract structured fields with AI, review the "
-        "values, and download the results. Scanned PDFs are not supported in version 1."
-    )
+    "Upload PDF invoices, extract structured fields with AI, review the values, "
+    "and download the results. Scanned PDFs are processed locally with OCR when needed."
+)
 
     settings = load_settings()
     with st.sidebar:
@@ -148,7 +148,7 @@ def main() -> None:
     if st.button("1. Extract and preview text", type="primary", disabled=not uploads):
         extracted_documents: list[ExtractedInvoice] = []
         errors: list[str] = []
-        with st.spinner("Reading embedded PDF text locally..."):
+        with st.spinner("Reading PDF text locally..."):
             for upload in uploads:
                 try:
                     extracted_documents.append(
@@ -174,6 +174,10 @@ def main() -> None:
         )
         for index, document in enumerate(extracted_documents):
             with st.expander(document.source_filename, expanded=index == 0):
+                if document.extraction_method == "ocr":
+                    st.caption("Reading method: Local OCR (Tesseract)")
+                else:
+                    st.caption("Reading method: Digital text extraction")
                 preview_limit = 4_000
                 preview = document.text[:preview_limit]
                 st.text_area(

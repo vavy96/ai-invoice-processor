@@ -33,14 +33,21 @@ def test_extracts_and_joins_digital_text(monkeypatch: pytest.MonkeyPatch) -> Non
     assert "Total: EUR 42.00" in text
 
 
-def test_rejects_image_only_pdf(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_uses_ocr_for_image_only_pdf(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setattr(
         "invoice_processor.pdf_extractor.PdfReader",
         lambda stream: FakeReader(stream, [FakePage(None)]),
     )
+    monkeypatch.setattr(
+        "invoice_processor.pdf_extractor.extract_text_with_ocr",
+        lambda pdf_bytes: "Invoice text extracted using local OCR",
+    )
 
-    with pytest.raises(PDFExtractionError, match="does not support scanned"):
-        extract_text_from_pdf(b"fake pdf bytes")
+    text = extract_text_from_pdf(b"fake pdf bytes")
+
+    assert text == "Invoice text extracted using local OCR"
 
 
 def test_rejects_empty_upload() -> None:
